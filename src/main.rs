@@ -1,6 +1,6 @@
-use crate::encrpyption::write::{derive_key, get_secure_input};
+use crate::encryption::write::{derive_key, get_secure_input};
 
-mod encrpyption;
+mod encryption;
 
 
 fn main() {  

@@ -18,7 +18,7 @@ pub fn get_secure_input(prompt: &str) -> io::Result<Zeroizing<String>> {
 //master pw hashing using password + salt
 
 pub fn derive_key(
-    master_password: &str,
+    master_password: &Zeroizing<String>,
     salt:&[u8; 16],
 ) -> Result<Zeroizing<[u8; 32]>, String> {
     let mut key = Zeroizing::new([0u8; 32]);

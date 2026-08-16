@@ -1,6 +1,7 @@
-use crate::encryption::write::{derive_key, get_secure_input};
-
 mod encryption;
+
+use encryption::{encrypt_json, derive_key, get_secure_input};
+
 
 
 fn main() {  
@@ -10,7 +11,7 @@ fn main() {
             println!("Password input succesful");
             match derive_key(&password, &salt) {
                 Ok(key) => {
-                    println!("Key: {:?}", key)
+                    println!("Chyphertext: {:?}", encrypt_json("yay", &key))
                 },
                 Err(_e) => {
                     print!("Error: {}", _e)

@@ -71,7 +71,7 @@ impl Settings {
         Ok(())
     }
 
-    pub fn load() -> Result<Settings, String> {
+    pub fn load() -> Result<(Settings, bool /*if true it means that it has loaded existing config if false it generated default oness */), String> {
         let config_dir = dirs::config_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("myvault");
@@ -79,7 +79,7 @@ impl Settings {
         if !config_dir.join("config.toml").exists() {
             let default_sett = Settings::default();
             default_sett.save()?;
-            return Ok(default_sett);
+            return Ok((default_sett, false));
         }
         let config_bytes_read = fs::read(&config_dir.join("config.toml"))
         .map_err(|_|{
@@ -98,7 +98,6 @@ impl Settings {
 
         config_struc.validate()?;
 
-        Ok(config_struc)
+        Ok((config_struc, true))
     }
-
 }

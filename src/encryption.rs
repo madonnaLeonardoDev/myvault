@@ -8,7 +8,7 @@ use aes_gcm::{
 use rand::rngs::OsRng;
 use rand::RngCore;
 
-use crate::cofnig::Settings;
+use crate::config::Settings;
 
 //get a memory sanitized safe password input
 pub fn get_secure_input(prompt: &str) -> io::Result<Zeroizing<String>> {
@@ -36,8 +36,8 @@ pub fn derive_key(
     Ok(key)
 }
 
-pub fn encrypt_json(
-  json: &str,
+pub fn encrypt_toml(
+  toml: &str,
   key: &Zeroizing<[u8; 32]> 
 ) -> Result<([u8; 12], Vec<u8>), String> {
     let mut nonce_bytes = [0u8; 12];
@@ -49,7 +49,7 @@ pub fn encrypt_json(
     let chiper = Aes256Gcm::new_from_slice(key.as_ref())
     .map_err(|_|"Failed createing the Cypher from key".to_string())?;
 
-    let chiphertext = chiper.encrypt(nonce, json.as_bytes())
+    let chiphertext = chiper.encrypt(nonce, toml.as_bytes())
         .map_err(|_| "Failed Encrypting the JSON".to_string())?;
 
     Ok((nonce_bytes, chiphertext))

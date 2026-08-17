@@ -8,6 +8,8 @@ use aes_gcm::{
 use rand::rngs::OsRng;
 use rand::RngCore;
 
+use crate::cofnig::Settings;
+
 //get a memory sanitized safe password input
 pub fn get_secure_input(prompt: &str) -> io::Result<Zeroizing<String>> {
     let input = prompt_password(prompt)?;
@@ -20,10 +22,11 @@ pub fn get_secure_input(prompt: &str) -> io::Result<Zeroizing<String>> {
 pub fn derive_key(
     master_password: &Zeroizing<String>,
     salt:&[u8; 16],
+    settings: &Settings
 ) -> Result<Zeroizing<[u8; 32]>, String> {
     let mut key = Zeroizing::new([0u8; 32]);
 
-    let params = Params::new(19456, 2, 1, Some(32)).map_err(|e| e.to_string())?;
+    let params = Params::new(settings.memory_cost, settings.time_cost, settings.threads_cost, Some(32)).map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
     argon2

@@ -2,6 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Write};
 use std::path::Path;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use crate::cofnig::Settings;
 use crate::encryption::{decrypt_json, derive_key, encrypt_json};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -15,7 +16,7 @@ pub struct PasswordBlock {
     pub password: String
 }
 
-fn atomically_write(filepath: &str, write: &[u8]) -> Result<(), String> {
+pub fn atomically_write(filepath: &str, write: &[u8]) -> Result<(), String> {
     let tmp_path = format!("{}.tmp", filepath);
 
     let mut file = OpenOptions::new()
@@ -57,7 +58,10 @@ Ok(salt)
 
 
 
-pub fn read_vault(filepath: &str, master_password:&Zeroizing<String> ) -> Result<([u8;16],Option<[u8;12]>,Zeroizing<String>), String> {
+pub fn read_vault(
+    filepath: &str,
+    master_password:&Zeroizing<String>,
+    settings: &Settings ) -> Result<([u8;16],Option<[u8;12]>,Zeroizing<String>), String> {
 
 let file_read= if Path::new(&filepath).exists() {
     fs::read(&filepath)
@@ -86,7 +90,7 @@ if file_read.len() < 28 {
     return Err("Vault Header corrupted or too short".to_string());
 }
 
-let key = derive_key(master_password, &salt).map_err(|_| "Could not derive key".to_string())?;
+let key = derive_key(master_password, &salt, settings).map_err(|_| "Could not derive key".to_string())?;
 let nonce: [u8; 12] = file_read[16..28].try_into().map_err(|_| "Header too short for nonce".to_string())?;
 
 let ciphertext_slice: &[u8] = &file_read[28..];
@@ -98,9 +102,9 @@ Ok((salt, Some(nonce), decrypted_text))
 }
 
 
-pub fn append_password_block(filepath: &str, master_password:&Zeroizing<String>, input: PasswordBlock) -> Result<(), String> {
+pub fn append_password_block(filepath: &str, master_password:&Zeroizing<String>, input: PasswordBlock, settings: &Settings) -> Result<(), String> {
     //Read the existing vault
-let vault_tuple = read_vault(filepath, master_password)
+let vault_tuple = read_vault(filepath, master_password, settings)
     .map_err(|_| "Could not read vault".to_string())?;
 
 let salt = vault_tuple.0;
@@ -118,7 +122,7 @@ let string_vault:Zeroizing<String> = Zeroizing::new(serde_json::to_string(&*zero
                                         .map_err(|_| "Could not to_string the Vault".to_string())?);
 //Encrypt the zeroed_vec
 
-let key = derive_key(master_password, &salt).map_err(|_| "Could not derive key".to_string())?;
+let key = derive_key(master_password, &salt, settings).map_err(|_| "Could not derive key".to_string())?;
 
 let nonce_cipher_tuple = encrypt_json(&string_vault, &key)
                                                             .map_err(|_| "Could not encrypt write".to_string())?;

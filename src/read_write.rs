@@ -26,6 +26,7 @@ pub struct PasswordBlock {
 // Top-level TOML table wrapper
 #[derive(Serialize, Deserialize, Debug, Default, Zeroize, ZeroizeOnDrop)]
 pub struct VaultData {
+    pub auth: String,
     pub vec_passwords_blocks: Vec<PasswordBlock>,
 }
 
@@ -60,10 +61,31 @@ pub fn atomically_write(filepath: &str, write: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-pub fn init_vault(filepath: &str) -> Result<[u8; 16], String> {
-    let mut salt = [0u8; 16];
+pub fn init_vault(filepath: &str, pw: Zeroizing<String>, settings: Settings) -> Result<[u8; 16], String> {
+    let mut salt: [u8; 16] = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
-    atomically_write(filepath, &salt)?;
+
+    let key: Zeroizing<[u8; 32]> = derive_key(&pw, &salt, &settings).map_err(|e| e.to_string())?;
+
+    let initial_data = VaultData {
+        auth: "VALID_VAULT".to_string(),
+        vec_passwords_blocks: vec![],
+    };
+
+    let toml_string = Zeroizing::new(
+        toml::to_string(&initial_data)
+            .map_err(|e| format!("Could not serialize initial vault: {}", e))?
+    );
+
+    let (nonce, encrypted_payload) = encrypt_toml(&toml_string, &key)
+        .map_err(|e| e.to_string())?;
+
+    let mut to_write: Vec<u8> = Vec::with_capacity(16 + 12 + encrypted_payload.len());
+    to_write.extend_from_slice(&salt);
+    to_write.extend_from_slice(&nonce);
+    to_write.extend_from_slice(&encrypted_payload);
+
+    atomically_write(filepath, &to_write)?;
     Ok(salt)
 }
 
@@ -80,6 +102,22 @@ pub fn write_to_vault(
     Ok(())
 }
 
+pub fn check_auth(
+    encrypted_txt: &[u8],
+    nonce_bytes: &[u8; 12],
+    key: &Zeroizing<[u8; 32]>
+) -> Result<Zeroizing<VaultData>, String> {
+    let decrypted: Zeroizing<String> = decrypt_bytes(nonce_bytes, key, encrypted_txt)?;
+
+    let data: VaultData = toml::from_str(&decrypted)
+        .map_err(|e| format!("Could not parse vault TOML: {}", e))?;
+
+    if data.auth == "VALID_VAULT" {
+        Ok(Zeroizing::new(data))
+    } else {
+        Err("Invalid password or corrupted vault auth marker".to_string())
+    }
+}
 
 pub struct UnlockedVault {
     filepath: String,
@@ -102,30 +140,13 @@ impl UnlockedVault {
             return Err("No .vault found, try\n myvault init | Init Vault".to_string());
         };
 
-        if file_read.len() < 16 {
+        if file_read.len() < 16 + 12 + 11 /*SALT+ NONCE + AUTH */ {
             return Err("File length too short, file corrupted".to_string());
         };
 
         let salt: [u8; 16] = file_read[0..16]
             .try_into()
             .map_err(|_| "Header too short for salt".to_string())?;
-
-        if file_read.len() == 16 {
-            let key: Zeroizing<[u8; 32]> = derive_key(master_password, &salt, settings)
-            .map_err(|_| "Could not derive key".to_string())?;
-
-
-            return Ok(Self {
-                filepath,
-                salt,
-                key,
-                data: Zeroizing::new(VaultData::default()),
-            });
-        }
-
-        if file_read.len() < 28 {
-            return Err("Vault Header corrupted or too short".to_string());
-        }
 
         let key: Zeroizing<[u8; 32]> = derive_key(master_password, &salt, settings)
             .map_err(|_| "Could not derive key".to_string())?;
@@ -136,19 +157,14 @@ impl UnlockedVault {
 
         let ciphertext_slice: &[u8] = &file_read[28..];
         
-        let decrypted_text: Zeroizing<String> = decrypt_bytes(&nonce, &key, ciphertext_slice)?;
+        let data: Zeroizing<VaultData> = check_auth(ciphertext_slice, &nonce, &key)?;
 
-        let data: Zeroizing<VaultData> = Zeroizing::new(
-            toml::from_str::<VaultData>(&*decrypted_text)
-                .map_err(|e| format!("Could not parse vault into TOML: {}", e))?
-        );
-
-        Ok(Self {
+        return Ok(Self {
             filepath,
             salt,
             key,
             data,
-        })
+        });
     }
     pub fn resolve_target(
         &self,

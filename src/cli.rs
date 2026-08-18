@@ -65,8 +65,10 @@ pub fn init_myvault() -> Result<String, (String, i32)> {
         }
     }
 
+    let settings = load_config()?;
+    let pw = get_secret("Insert the key for this vault \n Once set it cannot be changed without erasing the vault \n")?;
 
-    init_vault(&str_filepath)
+    init_vault(&str_filepath, pw, settings)
         .map_err(|e| (e, 1))?;
 
     Ok(format!("Vault init succesfull, located in {}",&str_filepath))
@@ -77,7 +79,7 @@ pub fn reset_myvault() -> Result<String, (String, i32)> {
 
     let file_path = format!("{}/.vault",&settings.vault_dir);
 
-    if Path::new(&file_path).exists() {
+    if !Path::new(&file_path).exists() {
         return Err(("No existing .vault initiated \n check config or myvault init".to_string(), 0));
     }
 
@@ -86,7 +88,9 @@ pub fn reset_myvault() -> Result<String, (String, i32)> {
      fs::remove_file(&file_path)
         .map_err(|e| (format!("Could not remove old vault: {}", e), 1))?;
      println!("Old vault removed initiating new one");
-     init_vault(&file_path)
+     let settings = load_config()?;
+     let pw = get_secret("Insert the key for new vault \n Once set it cannot be changed without erasing the vault \n")?;
+     init_vault(&file_path, pw, settings)
      .map_err(|e|(e, 1))?;  
     } else {
         return Err(("Vault reset cancelled".to_string(), 0))

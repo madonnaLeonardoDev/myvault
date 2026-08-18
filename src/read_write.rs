@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 use crate::config::Settings;
-use crate::encryption::{decrypt_json, derive_key, encrypt_toml};
+use crate::encryption::{decrypt_bytes, derive_key, encrypt_toml};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize, Serializer};
@@ -15,10 +15,10 @@ where
     serializer.serialize_str(&**val)
 }
 
-#[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop)]
+#[derive(Serialize, Deserialize, Debug, Zeroize, ZeroizeOnDrop, Clone)]
 pub struct PasswordBlock {
-    pub service: String,
-    pub username: String,
+    pub service: Zeroizing<String>,
+    pub username: Zeroizing<String>,
     #[serde(serialize_with = "serialize_zeroizing_string")]
     pub password: Zeroizing<String>,
 }
@@ -136,7 +136,7 @@ impl UnlockedVault {
 
         let ciphertext_slice: &[u8] = &file_read[28..];
         
-        let decrypted_text: Zeroizing<String> = decrypt_json(&nonce, &key, ciphertext_slice)?;
+        let decrypted_text: Zeroizing<String> = decrypt_bytes(&nonce, &key, ciphertext_slice)?;
 
         let data: Zeroizing<VaultData> = Zeroizing::new(
             toml::from_str::<VaultData>(&*decrypted_text)
@@ -153,8 +153,8 @@ impl UnlockedVault {
     pub fn resolve_target(
         &self,
         target: SearchTarget,
-    ) -> Result<Zeroizing<(String, String)>, (String, Option<Vec<Zeroizing<(String, String)>>>)> {
-        let matches: Vec<Zeroizing<(String, String)>> = self.data
+    ) -> Result<Zeroizing<PasswordBlock>, (String, Option<Vec<Zeroizing<PasswordBlock>>>)> {
+        let matches: Vec<Zeroizing<PasswordBlock>> = self.data
             .vec_passwords_blocks
             .iter()
             .filter(|e| match target {
@@ -165,7 +165,7 @@ impl UnlockedVault {
                         && e.username.eq_ignore_ascii_case(username)
                 }
             })
-            .map(|e| Zeroizing::new((e.service.clone(), e.username.clone())))
+            .map(|e| Zeroizing::new((*e).clone()))
             .collect();
 
         match matches.len() {

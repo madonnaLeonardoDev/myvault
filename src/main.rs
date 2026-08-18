@@ -2,14 +2,11 @@ mod encryption;
 mod read_write;
 mod config;
 mod cli;
+mod clipboard;
 
-use clap::builder::Str;
 use clap::{Parser, Subcommand};
-use zeroize::Zeroizing;
-use crate::cli::init_myvault;
-use crate::config::Settings;
-use crate::encryption::get_secure_input;
-use crate::read_write::{PasswordBlock, SearchTarget, UnlockedVault};
+use crate::cli::{add_password, copy_pw, init_myvault, list_vault, remove_password, reset_myvault};
+use crate::clipboard::init_clipboard_daemon;
 
 #[derive(Parser)]
 #[command(name = "myvault", author, version, about = "Secure Password Vault")]
@@ -52,41 +49,59 @@ pub enum Commands {
 
     #[command(alias = "s")]
     Search {
-        query: Option<String>,
+        #[arg(short, long)]
+        service: Option<String>,
+
+        #[arg(short, long)]
+        username: Option<String>,
     },
     
     #[command(alias = "l")]
-    List 
+    List ,
+
+    #[command(alias = "r")]
+    Reset
 }
 
-fn load_config() -> Settings {
-    match Settings::load() {
-        Ok(value) => {
-            if !value.1 {
-                println!("Could not load previous settings, so loaded default ones")
-            }
-            value.0
-        },
-        Err(e) => {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
-    }
-}
 
-fn get_secret(message: String) -> Zeroizing<String> {
-    match get_secure_input(&message) {
-        Ok(val) => val,
-        Err(e) => {
-            eprintln!("{}", e);
-            std::process::exit(1);
-        }
-    }
-}
 
 
 fn main() {  
+    init_clipboard_daemon();
+
     let cli = Cli::parse();
 
-    
+    let response = (|| -> Result<String, (String, i32)> {
+        match cli.command {
+            Commands::Init => {
+                Ok(init_myvault()?)
+            },
+            Commands::Add { service, username } => {
+                Ok(add_password(service, username)?)
+            },
+            Commands::Remove { service, username } => {
+                Ok(remove_password(service, username)?)
+            },
+            Commands::Copy { service, username } => {
+                Ok(copy_pw(service, username)?)
+            },
+            Commands::List => Ok(list_vault()?),
+            Commands::Reset => Ok(reset_myvault()?),
+            _ => Err(("Opsss".to_string(), 0))
+        }
+    })().map_err(|e|{
+        (e.0, e.1)
+    });
+
+    match response {
+        Ok(msg) => {
+            println!("{}",msg);
+            std::process::exit(0);
+        },
+        Err((msg, exit_code)) => {
+            eprintln!("{}", msg);
+            std::process::exit(exit_code);
+        }
+    }
+
 }

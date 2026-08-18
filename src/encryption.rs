@@ -50,13 +50,13 @@ pub fn encrypt_toml(
     .map_err(|_|"Failed createing the Cypher from key".to_string())?;
 
     let chiphertext = chiper.encrypt(nonce, toml.as_bytes())
-        .map_err(|_| "Failed Encrypting the JSON".to_string())?;
+        .map_err(|_| "Failed Encrypting the TOML".to_string())?;
 
     Ok((nonce_bytes, chiphertext))
 
 }
 
-pub fn decrypt_json(
+pub fn decrypt_bytes(
     nonce_bytes: &[u8; 12],
     key: &Zeroizing<[u8; 32]>,
     ciphertext: &[u8]

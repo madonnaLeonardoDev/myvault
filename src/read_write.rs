@@ -7,6 +7,8 @@ use crate::encryption::{decrypt_bytes, derive_key, encrypt_toml};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize, Serializer};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 
 fn serialize_zeroizing_string<S>(val: &Zeroizing<String>, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -137,7 +139,7 @@ impl UnlockedVault {
         let file_read = if Path::new(&filepath).exists() {
             fs::read(&filepath).map_err(|_| "Could not Read File".to_string())?
         } else {
-            return Err("No .vault found, try\n myvault init | Init Vault".to_string());
+            return Err("No .vault found, try\nmyvault init \nChecking vault_dir in config".to_string());
         };
 
         if file_read.len() < 16 + 12 + 11 /*SALT+ NONCE + AUTH */ {
@@ -213,6 +215,49 @@ impl UnlockedVault {
         self.data.vec_passwords_blocks.remove(index);
         Ok(())
     }
+    
+    pub fn fuzzy_search(&self, query: &str) -> Result<Option<Vec<PasswordBlock>>, String> {
+    if query.trim().is_empty() {
+        return Err("Provide a query for the search".to_string());
+    }
+
+    let matcher = SkimMatcherV2::default();
+
+    let mut scored_matches: Vec<(i64, PasswordBlock)> = self
+        .data
+        .vec_passwords_blocks
+        .iter()
+        .filter_map(|block| {
+            let s_score = matcher.fuzzy_match(&block.service, query);
+            let u_score = matcher.fuzzy_match(&block.username, query);
+
+            let best_score = match (s_score, u_score) {
+                (Some(s), Some(u)) => Some(s.max(u)),
+                (Some(s), None) => Some(s),
+                (None, Some(u)) => Some(u),
+                (None, None) => None,
+            }?;
+
+            Some((best_score, block.clone()))
+        })
+        .collect();
+
+    if scored_matches.is_empty() {
+        return Ok(None);
+    }
+
+    // Sort descending by match score
+    scored_matches.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // Extract sorted PasswordBlocks
+    let sorted_blocks: Vec<PasswordBlock> = scored_matches
+        .into_iter()
+        .map(|(_, block)| block)
+        .collect();
+
+    Ok(Some(sorted_blocks))
+}
+
     pub fn save(&self) -> Result<(), String> {
         let string_vault: Zeroizing<String> = Zeroizing::new(
             toml::to_string(&self.data)

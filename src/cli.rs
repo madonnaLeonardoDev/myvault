@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 use std::{fs, io};
+use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use crate::read_write::{PasswordBlock, SearchTarget, UnlockedVault, init_vault};
@@ -215,9 +216,6 @@ pub fn copy_pw  (
         }
     };
 
-    unlocked_vault.save()
-        .map_err(|e| (e, 1))?;
-
     let cp_duration:u64 = 15;
 
     match copy_and_persist_clipboard(&to_copy_pw, cp_duration) {
@@ -273,4 +271,70 @@ pub fn list_vault() -> Result<String, (String, i32)> {
     unlocked_vault.save()
         .map_err(|e| (e, 1))?;
     Ok("".to_string())
+}
+
+pub fn search(query: &str) -> Result<String, (String, i32)> {
+    let settings = load_config()?;
+    let pw = get_secret("[KEY]")?;
+
+    let unlocked_vault = UnlockedVault::open(&pw, &settings)
+    .map_err(|e|(e.to_string(), 1))?;
+
+    let search_result = unlocked_vault.fuzzy_search(&query)
+    .map_err(|e| (e.to_string(), 1))?;
+
+    if search_result.is_none(){
+        return Ok("No match found".to_string())
+    }
+    let search_result = search_result.unwrap();
+
+    let mut max_service_len = "SERVICE".len();
+    let mut max_username_len = "USERNAME".len();
+
+    let mut service_vec:Vec<&Zeroizing<String>> = Vec::new();
+    let mut username_vec: Vec<&Zeroizing<String>> = Vec::new();
+
+    for e in &search_result {
+        max_service_len = max_service_len.max(e.service.len());
+        max_username_len = max_username_len.max(e.username.len());
+
+        service_vec.push(&e.service);
+        username_vec.push(&e.username);
+    };
+
+    //PRINT HEADER
+
+    println!(
+            "| {:<s_len$} | {:<u_len$} | PASSWORD",
+
+            "SERVICE",
+            "USERNAME",
+            s_len = max_service_len,
+            u_len = max_username_len
+        );
+
+    for e in &search_result {
+        println!(
+            "| {:<s_len$} | {:<u_len$} | ***",
+
+            &*e.service,
+            &*e.username,
+            s_len = max_service_len,
+            u_len = max_username_len
+        );
+    };
+    
+    Ok("".to_string())
+}
+
+pub fn config() -> Result<String, (String, i32)> {
+    let settings = load_config()?;
+    
+    let config_dir:String  = dirs::config_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("myvault").to_string_lossy().into_owned();
+    Ok(format!(
+        "Config file is located at: {} \n\nKEY DERIVATION PARAMETERS \nmemory_cost = {}\ntime_cost = {}\nthreads_cost = {}\n\nVAULT SETTINGS\nvault_dir = {}",
+        config_dir, settings.memory_cost, settings.time_cost, settings.threads_cost, settings.vault_dir
+    ))
 }

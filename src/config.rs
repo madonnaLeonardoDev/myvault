@@ -16,21 +16,41 @@ pub struct Settings{
 }
 
 impl Settings {
-    pub fn default() -> Self {
+
+pub fn generate_config(memory_cost:u32, time_cost: u32, threads_cost: u32, vault_dir: String) -> (Self, String) {
+    let config_str:String = format!(
+r#"# KEY DERIVATION PARAMETERS
+# WARNING: Key derivation parameters (Argon2) are tightly bound to existing vaults.
+# Modifying these values will cause decryption failures for existing vault files.
+# To recover, revert these settings to their original values or reset your vault.
+
+# Security vs Performance: Higher Argon2 parameters strengthen protection against 
+# brute-force attacks, but will noticeably increase the time required to unlock your vault.
+memory_cost = {}
+time_cost = {}
+threads_cost = {}
+
+# VAULT SETTING
+# NOTE: Changing `vault_dir` will prevent the program from locating your existing vault.
+# To retain access, manually move your `.vault` file/folder to the new path or revert this setting.
+vault_dir = '{}'"#,
+    memory_cost, time_cost, threads_cost, vault_dir);
+
+    let parsed_settings: Self = toml::from_str(&config_str).unwrap();
+
+    (parsed_settings, config_str)
+
+}
+
+pub fn default() -> (Self,String) {
         let default_vault_dir = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("myvault")
             .to_string_lossy()
             .into_owned();
-
-        Self {
-            memory_cost: 64 * 1024, // 64mb
-            time_cost: 3, //3 passes
-            threads_cost: 4, //utilizes 4 threads
-
-            vault_dir: default_vault_dir
-        }
+        Self::generate_config(65536, 3, 4, default_vault_dir)
     }
+
     
     fn validate(&self) -> Result<(), String> {
         if self.memory_cost < 8 * 1024 || self.memory_cost > 1024 * 1024 {
@@ -45,12 +65,11 @@ impl Settings {
         Ok(())
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub fn save(self_str: &(Self, String)) -> Result<(), String> {
 
-    self.validate()?;
+    self_str.0.validate()?;
     
-    let settings_toml_string:String = toml::to_string(self)
-                                                .map_err(|_| "Could not to_string default settings".to_string())?;
+    let settings_toml_string:&str = &self_str.1;
 
     let config_dir = dirs::config_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -66,8 +85,8 @@ impl Settings {
     }
 
     pub fn set_default() -> Result<(), String> {
-       Settings::default().save()?;
-
+        let default_sett = Settings::default();
+        Settings::save(&default_sett)?;
         Ok(())
     }
 
@@ -78,8 +97,8 @@ impl Settings {
 
         if !config_dir.join("config.toml").exists() {
             let default_sett = Settings::default();
-            default_sett.save()?;
-            return Ok((default_sett, false));
+            Settings::save(&default_sett)?;
+            return Ok((default_sett.0, false));
         }
         let config_bytes_read = fs::read(&config_dir.join("config.toml"))
         .map_err(|_|{

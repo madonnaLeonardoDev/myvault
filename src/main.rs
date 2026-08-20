@@ -4,6 +4,7 @@ mod config;
 mod cli;
 mod clipboard;
 
+
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use crate::cli::{add_password, config, copy_pw, init_myvault, list_vault, remove_password, reset_myvault, search};

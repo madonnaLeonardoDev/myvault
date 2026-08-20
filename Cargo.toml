@@ -3,6 +3,21 @@ name = "myvault"
 version = "1.0.0"
 edition = "2024"
 
+# Expose shared code as a library
+[lib]
+name = "myvault"
+path = "src/lib.rs"
+
+# Main CLI binary
+[[bin]]
+name = "myvault"
+path = "src/main.rs"
+
+# Daemon binary for browser extension
+[[bin]]
+name = "vault_daemon"
+path = "src/browser_daemon/mod.rs"
+
 [dependencies]
 rpassword = "7.5.4"
 zeroize = { version = "1.9.0", features = ["derive", "serde"] }

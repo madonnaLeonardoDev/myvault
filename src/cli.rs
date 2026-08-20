@@ -216,9 +216,6 @@ pub fn copy_pw  (
         }
     };
 
-    unlocked_vault.save()
-        .map_err(|e| (e, 1))?;
-
     let cp_duration:u64 = 15;
 
     match copy_and_persist_clipboard(&to_copy_pw, cp_duration) {

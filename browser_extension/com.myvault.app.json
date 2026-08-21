@@ -1,0 +1,9 @@
+{
+  "name": "com.myvault.app",
+  "description": "myvault rust backend",
+  "path": "/home/mfleo/Documents/code/learningRust/myvault/target/release/vault_daemon",
+  "type": "stdio",
+  "allowed_extensions": [
+    "myvault@leo.dev"
+  ]
+}

@@ -84,7 +84,7 @@ case "${USER_SHELL}" in
         while IFS= read -r dir; do
             if [ -n "$dir" ] && [ -d "$dir" ] && [ -w "$dir" ]; then
                 COMP_DIR="$dir"
-                break
+                continue
             fi
         done < <(zsh -c 'print -l $fpath' 2>/dev/null || true)
 

@@ -379,69 +379,6 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-let lastFilledCredentials = { username: null, password: null };
-
-function fillCredentials(username, password) {
-  const setInputValue = (inputElement, val) => {
-    if (!inputElement || val == null) return;
-
-    inputElement.focus();
-
-    const nativeSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      'value'
-    )?.set;
-
-    if (nativeSetter) {
-      nativeSetter.call(inputElement, val);
-    } else {
-      inputElement.value = val;
-    }
-
-    inputElement.dispatchEvent(new InputEvent('input', {
-      bubbles: true,
-      cancelable: true,
-      inputType: 'insertText',
-      data: val
-    }));
-    
-    inputElement.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-
-  const findInput = (selector) => {
-    let el = document.querySelector(selector);
-    if (el) return el;
-
-    const allElements = document.querySelectorAll('*');
-    for (const host of allElements) {
-      if (host.shadowRoot) {
-        el = host.shadowRoot.querySelector(selector);
-        if (el) return el;
-      }
-    }
-    return null;
-  };
-
-  const pwInput = findInput('input[type="password"]');
-  const userInput = findInput(
-    'input[type="text"], input[type="email"], input[name*="user"], input[name*="login"], input[autocomplete="username"]'
-  );
-
-  if (userInput && username) {
-    setInputValue(userInput, username);
-  }
-
-  if (pwInput && password) {
-    setInputValue(pwInput, password);
-  }
-
-  // Record what was filled so we can suppress the save prompt if nothing changes
-  lastFilledCredentials = {
-    username: username || "",
-    password: password || ""
-  };
-}
-
 function sendToRust(action, website, username, password) {
   const packet = {
     action: action || "",
@@ -452,115 +389,182 @@ function sendToRust(action, website, username, password) {
   (typeof browser !== 'undefined' ? browser : chrome).runtime.sendMessage(packet);
 }
 
-sendToRust("ext_loaded", "", "", "");
+//SUBMIT LISTENER 
+let lastFill;
 
+function initializeLoginInterceptor() {
+  let pendingUsername = '';
 
-function isLoginField(input) {
-  if (input.type === "password") return true;
+  function extractCredentials(container) {
+    // 1. Grab every input inside the form (or document)
+    const allInputs = Array.from(container.querySelectorAll('input'));
+    
+    // 2. Filter them using your exact autofill logic!
+    const userFields = allInputs.filter(el => isUsernameField(el));
+    const passFields = allInputs.filter(el => isPasswordFieldOnly(el));
 
-  if (input.type === "text" || input.type === "email") {
-    const isSearch = /search|query|q/i.test(input.name + input.id + input.className + input.placeholder);
-    if (isSearch || input.type === "search" || input.readOnly) return false;
+    // 3. SPA FIX: Find the first field that actually has text in it. 
+    // This bypasses hidden modal inputs (like the Pinterest "Sign Up" vs "Log In" issue).
+    const userField = userFields.find(input => input.value.trim().length > 0) || userFields[0];
+    const passField = passFields.find(input => input.value.length > 0) || passFields[0];
 
-    const ac = input.autocomplete.toLowerCase();
-    if (ac === "username" || ac === "email" || ac === "webauthn") return true;
-
-    const attrString = (input.name + input.id + input.placeholder).toLowerCase();
-    const hasLoginKeywords = /user|login|email|account|sign-in|signin|id/i.test(attrString);
-    if (hasLoginKeywords) return true;
-
-    const form = input.closest("form");
-    if (form && form.querySelector('input[type="password"]')) {
-      return true;
-    }
+    return {
+      username: userField ? userField.value.trim() : '',
+      password: passField ? passField.value : ''
+    };
   }
 
-  return false;
-}
+  function handleInteraction(e) {
+    const isSubmitEvent = e.type === 'submit';
+    // Broadened to catch divs/spans used as buttons (very common in React apps)
+    const isButtonClick = e.type === 'click' && (e.target.closest('button, [role="button"], input[type="submit"]') !== null);
+    const isEnterKey = e.type === 'keydown' && e.key === 'Enter' && e.target.tagName === 'INPUT';
 
-document.addEventListener("focusin", (event) => {
-  const target = /** @type {HTMLElement} */ (event.target);
-  if (!(target instanceof HTMLInputElement)) return;
+    if (!isSubmitEvent && !isButtonClick && !isEnterKey) return;
 
-  if (isLoginField(target)) {
-    sendToRust("field_focused", window.location.hostname, "", "");
-  }
-}, true);
+    const container = e.target.closest('form') || document;
+    const { username, password } = extractCredentials(container);
 
-function getLoginInput() {
-  const pwInput = document.querySelector('input[type="password"]');
-  const userInput = document.querySelector(
-    'input[type="text"]:not([type="search"]), input[type="email"], input[autocomplete="username"]'
-  );
-
-  return {
-    username: (userInput && userInput.value) ? userInput.value : null,
-    password: (pwInput && pwInput.value) ? pwInput.value : null
-  };
-}
-
-function submitLoginListener(onSubmit) {
-  function handleCapture(targetElement) {
-    const container = targetElement.closest('form') || targetElement.closest('div') || document.body;
-    const pwInput = container.querySelector('input[type="password"]');
-    if (!pwInput || !pwInput.value) return;
-
-    const userInput = container.querySelector(
-      'input[type="text"]:not([type="search"]), input[type="email"], input[autocomplete="username"]'
-    );
-
-    onSubmit({
-      username: (userInput && userInput.value) ? userInput.value : null,
-      password: pwInput.value
-    });
-  }
-
-  document.addEventListener('submit', (e) => {
-    handleCapture(e.target);
-  }, true);
-
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest('button, input[type="submit"], input[type="button"], [role="button"]');
-    if (!btn) return;
-
-    if (btn.closest('form')) return;
-
-    const btnText = (btn.textContent || btn.value || '').toLowerCase();
-    const isLoginBtn = /log\s*in|sign\s*in|submit|continue|next/i.test(btnText);
-
-    if (btn.type === 'submit' || isLoginBtn) {
-      handleCapture(btn);
-    }
-  }, true);
-}
-
-submitLoginListener((credentials) => {
-    if (
-      lastFilledCredentials.username !== null &&
-      credentials.username === lastFilledCredentials.username &&
-      credentials.password === lastFilledCredentials.password
-    ) {
-      return;
-    }
-
-    const { hostElement, shadowRoot } = build_popup(password_add("save password?"));
-    const decline = shadowRoot.querySelector('.decline');
-    const accept = shadowRoot.querySelector('.accept');
-
-    accept.addEventListener('click', () => {
-      const {username, password} = credentials;
-      if (username === null || password === null) {
+    if (password) {
+      const finalUsername = username || pendingUsername;
+      
+      // FIX: Safely compare object properties instead of object references!
+      // (lastFill === { ... }) will always be false in JavaScript.
+      if (lastFill && lastFill.username === finalUsername && lastFill.password === password) {
+        console.log("fah: Credentials match last fill, skipping.");
         return;
       }
-      sendToRust("save_pw", window.location.hostname, username, password);
-      closePopup();
+      
+      console.log('Login attempt detected:', { username: finalUsername, password: '***' });
+
+      const { hostElement, shadowRoot } = build_popup(password_add("Save Password?"));
+    const accept = shadowRoot.querySelector('.accept');
+    const decline = shadowRoot.querySelector('.decline');
+
+    accept.addEventListener('click', () => {
+        sendToRust("save_pw", window.location.hostname, finalUsername, password);
+        closePopup();
     });
 
     decline.addEventListener('click', () => {
       closePopup();
     });
-});
+      
+      // Update lastFill so we don't spam the Rust backend if the user clicks twice
+      lastFill = { username: finalUsername, password: password };
+      pendingUsername = ''; // Reset state after a password submit
 
+    } else if (username && (isButtonClick || isEnterKey || isSubmitEvent)) {
+      // FIX: Added parentheses around the events so it requires a username to be present
+      pendingUsername = username;
+    }
+  }
+
+  // Use { capture: true } to intercept the event on its way DOWN the DOM tree.
+  document.addEventListener('submit', handleInteraction, true);
+  document.addEventListener('click', handleInteraction, true);
+  document.addEventListener('keydown', handleInteraction, true);
+}
+
+initializeLoginInterceptor()
+
+
+
+//DOM FILL PASSWORD AND FILL USERNAME
+
+ 
+function setNativeValue(el, value) {
+  const proto = Object.getPrototypeOf(el);
+  const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+  const nativeSetter = descriptor && descriptor.set;
+  if (nativeSetter) {
+    nativeSetter.call(el, value);
+  } else {
+    el.value = value;
+  }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+ 
+function fillUsernameField(root, value) {
+  const inputs = root.querySelectorAll('input');
+  for (const el of inputs) {
+    if (isUsernameField(el)) {
+      setNativeValue(el, value);
+      return true;
+    }
+  }
+  return false;
+}
+ 
+function fillPasswordField(root, value) {
+  const inputs = root.querySelectorAll('input');
+  for (const el of inputs) {
+    if (isPasswordFieldOnly(el)) {
+      setNativeValue(el, value);
+      return true;
+    }
+  }
+  return false;
+}
+
+ 
+function fillAll(root, username, password) {
+  fillUsernameField(root, username);
+ 
+  fillPasswordField(root, password);
+
+  lastFill = {username: username, password: password};
+}
+
+//DOM LISTENERS FOCUS LOGIN FIELD
+function isPasswordFieldOnly(el) {
+  if (!el || el.tagName !== 'INPUT') return false;
+  if (el.type === 'password') return true;
+  const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+  if (autocomplete === 'current-password' || autocomplete === 'new-password') return true;
+  if (el.name === 'Passwd') return true;
+  return false;
+}
+ 
+function isUsernameField(el) {
+  if (!el || el.tagName !== 'INPUT') return false;
+  if (isPasswordFieldOnly(el)) return false;
+  const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+  if (autocomplete === 'username' || autocomplete === 'email') return true;
+  if (el.id === 'identifierId') return true;
+  const usernameTypes = ['text', 'email', 'tel', ''];
+  if (usernameTypes.includes(el.type)) {
+    const haystack = (
+      (el.name || '') + ' ' +
+      (el.id || '') + ' ' +
+      (el.getAttribute('placeholder') || '')
+    ).toLowerCase();
+    if (/user|username|login|identifier|email|e-mail/.test(haystack)) return true;
+  }
+  return false;
+}
+ 
+function isLoginField(el) {
+  return isUsernameField(el) || isPasswordFieldOnly(el);
+}
+
+document.addEventListener('focus', (e) => {
+  if (isLoginField(e.target)) {
+    console.log('Login field focused:', e.target);
+    sendToRust("field_focused", window.location.hostname)
+  }
+}, true);
+
+document.addEventListener('focus', (e) => {
+  if (isLoginField(e.target)) {
+    console.log('Login field focused:', e.target);
+    sendToRust("field_focused", window.location.hostname)
+  }
+}, true);
+//START MESSAGE
+sendToRust("ext_loaded", "", "", "");
+//DAEMON LISTENER
 const api = typeof browser !== 'undefined' ? browser : chrome;
 let lastMatchTime = 0;
 
@@ -586,10 +590,6 @@ api.runtime.onMessage.addListener((msg) => {
   }  
   
   if (msg.status === 'match_found') {
-    const now = Date.now();
-    if (now - lastMatchTime < 15000) return;
-    lastMatchTime = now;
-
     const matches = typeof msg.message === 'string' ? JSON.parse(msg.message) : msg.message;
 
     const fill = `
@@ -742,7 +742,7 @@ api.runtime.onMessage.addListener((msg) => {
 
     accept.addEventListener('click', () => {
       if (selectedAccount) {
-        fillCredentials(selectedAccount.username, selectedAccount.password);
+        fillAll(document, selectedAccount.username, selectedAccount.password);
         closePopup();
       }
     });

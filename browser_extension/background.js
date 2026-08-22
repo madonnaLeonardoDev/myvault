@@ -27,11 +27,37 @@ nativePort.onDisconnect.addListener(() => {
   console.error("Disconnected from Rust backend:", api.runtime.lastError?.message);
 });
 
+
+
 // ==========================================
 // 2. LISTEN TO BROWSER -> ROUTE TO RUST
 // ==========================================
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!sender.tab || !sender.tab.id) return;
   
+  const tabIdKey = `tab_data_${sender.tab.id}`;
+
+  if (msg.action === 'SAVE_TAB_DATA') {
+    // chrome.storage.session keeps data in memory. It is cleared when the browser closes.
+    chrome.storage.session.set({ [tabIdKey]: request.payload }, () => {
+      sendResponse({ success: true });
+    });
+    return true; // Indicates async response
+  }
+
+  if (msg.action === 'GET_TAB_DATA') {
+    chrome.storage.session.get([tabIdKey], (result) => {
+      sendResponse(result[tabIdKey] || {});
+    });
+    return true; // Indicates async response
+  }
+
+  if (msg.action === 'CLEAR_TAB_DATA') {
+    chrome.storage.session.remove(tabIdKey);
+    sendResponse({ success: true });
+    return true;
+  }
+
   // Capture BOTH Tab ID and Frame ID to prevent iframe broadcasting
   if (sender && sender.tab && sender.tab.id) {
     lastRequestingTabId = sender.tab.id;
@@ -62,3 +88,7 @@ function sendToActiveTab(msg) {
     }
   });
 }
+
+api.tabs.onRemoved.addListener((tabId) => {
+  chrome.storage.session.remove(`tab_data_${tabId}`);
+});

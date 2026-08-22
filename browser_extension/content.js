@@ -331,8 +331,7 @@ function notif(txt){
   `;}
 
 function build_popup(html) {
-  closePopup();
-
+  closePopup()
   const hostElement = document.createElement('div');
   hostElement.id = 'myvault-root';
 
@@ -365,13 +364,14 @@ function build_popup(html) {
 }
 
 function closePopup() {
-  const existing = document.getElementById('myvault-root');
-  if (existing) {
+  // Use querySelectorAll to find ALL instances just in case duplicates spawned
+  const existings = document.querySelectorAll('#myvault-root');
+  existings.forEach((existing) => {
     if (typeof existing.hidePopover === 'function') {
       try { existing.hidePopover(); } catch (e) {}
     }
     existing.remove();
-  }
+  });
 }
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -451,7 +451,9 @@ function sendToRust(action, website, username, password) {
   };
   (typeof browser !== 'undefined' ? browser : chrome).runtime.sendMessage(packet);
 }
+
 sendToRust("ext_loaded", "", "", "");
+
 
 function isLoginField(input) {
   if (input.type === "password") return true;

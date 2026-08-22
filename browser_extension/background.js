@@ -3,19 +3,20 @@ const api = typeof browser !== 'undefined' ? browser : chrome;
 const NATIVE_HOST_NAME = 'com.myvault.app'; 
 let nativePort = api.runtime.connectNative(NATIVE_HOST_NAME);
 
-
 let lastRequestingTabId = null;
-let pendingMessageFromRust = null; 
+let lastRequestingFrameId = null; 
+let isLoadedSent = false;
 
+// ==========================================
+// 1. LISTEN TO RUST -> ROUTE BACK TO BROWSER
+// ==========================================
 nativePort.onMessage.addListener((msg) => {
   console.log("Received from Rust:", msg);
 
-  pendingMessageFromRust = msg; 
-
   if (lastRequestingTabId !== null) {
-    api.tabs.sendMessage(lastRequestingTabId, msg).catch(() => {
-      // Fallback: If the original tab was just closed, try the current active tab
-      sendToActiveTab(msg);
+    // Send strictly to the specific Tab AND Frame that requested it!
+    api.tabs.sendMessage(lastRequestingTabId, msg, { frameId: lastRequestingFrameId }).catch((err) => {
+      console.warn(`Tab ${lastRequestingTabId} frame ${lastRequestingFrameId} not ready:`, err.message);
     });
   } else {
     sendToActiveTab(msg);
@@ -26,26 +27,38 @@ nativePort.onDisconnect.addListener(() => {
   console.error("Disconnected from Rust backend:", api.runtime.lastError?.message);
 });
 
-
+// ==========================================
+// 2. LISTEN TO BROWSER -> ROUTE TO RUST
+// ==========================================
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   
-
+  // Capture BOTH Tab ID and Frame ID to prevent iframe broadcasting
   if (sender && sender.tab && sender.tab.id) {
     lastRequestingTabId = sender.tab.id;
-
-    if (pendingMessageFromRust) {
-      api.tabs.sendMessage(sender.tab.id, pendingMessageFromRust).catch(() => {});
-      pendingMessageFromRust = null;
-    }
+    lastRequestingFrameId = sender.frameId !== undefined ? sender.frameId : 0; 
   }
 
+  // Handle the one-time extension initialization globally
+  if (msg.action === "ext_loaded") {
+    if (!isLoadedSent) {
+      console.log(`Forwarding ext_loadMSG to Rust`);
+      nativePort.postMessage(msg);
+      isLoadedSent = true;
+    }
+    return; // Stop here! Do not forward duplicate iframe "ext_loaded" messages
+  }
+
+  console.log(msg);
   nativePort.postMessage(msg);
 });
 
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
 function sendToActiveTab(msg) {
   api.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs.length > 0) {
-      api.tabs.sendMessage(tabs[0].id, msg).catch(() => {});
+      api.tabs.sendMessage(tabs[0].id, msg, { frameId: 0 }).catch(() => {});
     }
   });
 }

@@ -28,7 +28,7 @@ fn main() {
     let settings = match Settings::load(){
         Ok(s) => s,
         Err(_) => {
-            //TODO: ERROR OUT MSG
+            write_packet(OutMsg { status: "error".to_string(), message: "Could not load settings".to_string() });
             return;
             }
         }.0;
